@@ -18,7 +18,6 @@ int main()
     const auto str = cppkit::sprintf("hello {}", "bob");
     std::cout << str << std::endl;
 
-
     std::cout << cppkit::replaceAll(str, "l", "L") << std::endl;
 
     std::cout << cppkit::replace(str, "l", "L", 1) << std::endl;

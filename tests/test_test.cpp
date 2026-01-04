@@ -1,5 +1,7 @@
 #include "cppkit/testing/test.hpp"
 
+#include "cppkit/array.hpp"
+
 using namespace cppkit::testing;
 
 int Add(const int a, const int b)
@@ -47,5 +49,11 @@ TEST_F(StringFixture, SubstringTest)
 
 int main()
 {
+    const std::vector v = {1, 2, 3, 4, 5};
+
+    for (const auto strVec = cppkit::arrayMap(v, [](int x) { return std::to_string(x); }); const auto& s : strVec)
+    {
+        std::cout << s << " ";
+    }
     return RunAllTests();
 }

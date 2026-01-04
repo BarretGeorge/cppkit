@@ -1,7 +1,9 @@
 #include "cppkit/http/server/http_server.hpp"
+#include "cppkit/http/server/http_context.hpp"
 #include "cppkit/event/server.hpp"
 #include "cppkit/strings.hpp"
 #include "cppkit/platform.hpp"
+#include "cppkit/http/server/router_group.hpp"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -25,13 +27,32 @@ namespace cppkit::http::server
 
         this->_server.setReadable([this](const event::ConnInfo& conn)
         {
-            HttpResponseWriter writer(conn.getFd());
+            const int fd = conn.getFd();
 
-            // 解析HTTP请求
-            const HttpRequest request = HttpRequest::parse(conn.getFd());
+            HttpContext& ctx = contexts[fd];
 
-            // 处理请求
-            handleRequest(request, writer, conn.getFd());
+            // 尝试解析
+            if (const ParseStatus status = ctx.parse(fd); status == ParseStatus::HeaderComplete)
+            {
+                HttpResponseWriter writer(fd);
+
+                handleRequest(*ctx.request, writer, fd);
+
+                // 根据连接头决定是否关闭连接
+                if (ctx.request->getHeader("keep-alive") != "true")
+                {
+                    contexts.erase(fd);
+                    return -1; // 关闭连接
+                }
+                ctx = HttpContext();
+            }
+            else if (status == ParseStatus::Error)
+            {
+                // 关闭连接
+                contexts.erase(fd);
+                return -1; // 关闭连接
+            }
+            // 等待更多数据
             return 0;
         });
         this->_server.start();
@@ -45,24 +66,29 @@ namespace cppkit::http::server
         this->_server.stop();
     }
 
-    void HttpServer::Get(const std::string& path, const HttpHandler& handler) const
+    void HttpServer::Get(const std::string& path, const HttpHandler& handler)
     {
         this->addRoute(HttpMethod::Get, path, handler);
     }
 
-    void HttpServer::Post(const std::string& path, const HttpHandler& handler) const
+    void HttpServer::Post(const std::string& path, const HttpHandler& handler)
     {
         this->addRoute(HttpMethod::Post, path, handler);
     }
 
-    void HttpServer::Put(const std::string& path, const HttpHandler& handler) const
+    void HttpServer::Put(const std::string& path, const HttpHandler& handler)
     {
         this->addRoute(HttpMethod::Put, path, handler);
     }
 
-    void HttpServer::Delete(const std::string& path, const HttpHandler& handler) const
+    void HttpServer::Delete(const std::string& path, const HttpHandler& handler)
     {
         this->addRoute(HttpMethod::Delete, path, handler);
+    }
+
+    GrouterGroup HttpServer::group(const std::string& prefix)
+    {
+        return {this, prefix};
     }
 
     void HttpServer::setMaxFileSize(const uintmax_t size)
@@ -74,13 +100,9 @@ namespace cppkit::http::server
         _maxFileSize = size;
     }
 
-    void HttpServer::addMiddleware(const std::shared_ptr<HttpMiddleware>& middleware)
+    void HttpServer::addMiddleware(const std::string& path, const MiddlewareHandler& middleware)
     {
-        _middlewares.push_back(middleware);
-        std::ranges::sort(_middlewares, [](const auto& a, const auto& b)
-        {
-            return a->getPriority() > b->getPriority();
-        });
+        _middleware.addMiddleware(path, middleware);
     }
 
     void HttpServer::setStaticDir(const std::string_view path, const std::string_view dir)
@@ -93,7 +115,7 @@ namespace cppkit::http::server
         }
     }
 
-    void HttpServer::addRoute(const HttpMethod method, const std::string& path, const HttpHandler& handler) const
+    void HttpServer::addRoute(const HttpMethod method, const std::string& path, const HttpHandler& handler)
     {
         // 判断路由是否已存在
         if (this->_router.exists(method, path))
@@ -104,7 +126,7 @@ namespace cppkit::http::server
         std::cout << "Added route: " << httpMethodValue(method) << " " << path << std::endl;
     }
 
-    void HttpServer::handleRequest(const HttpRequest& request, HttpResponseWriter& writer, int writerFd) const
+    void HttpServer::handleRequest(HttpRequest& request, HttpResponseWriter& writer, const int writerFd) const
     {
         std::unordered_map<std::string, std::string> params;
         const auto handler = _router.find(request.getMethod(), request.getPath(), params);
@@ -120,34 +142,33 @@ namespace cppkit::http::server
         }
         request.setParams(params);
 
+        const auto middlewares = _middleware.getMiddlewares(request.getPath());
+
+        if (middlewares.empty())
+        {
+            // 调用路由处理函数
+            handler(request, writer);
+            return;
+        }
+
+        bool nextCalled = false;
+        const NextFunc next = [&nextCalled]()
+        {
+            nextCalled = true;
+        };
+
         // 处理中间件
-        for (const auto& middleware : _middlewares)
+        for (const auto& middleware : middlewares)
         {
-            // 路径匹配
-            const std::string mwPath = middleware->getPath();
-            if (mwPath != "/" && !startsWith(request.getPath(), mwPath))
+            middleware(request, writer, next);
+            if (!nextCalled)
             {
-                continue;
+                // 中间件没有调用next，停止处理
+                return;
             }
-            if (!middleware->preProcess(request, writer))
-            {
-                return; // 中断请求处理
-            }
+            nextCalled = false;
         }
-
-        // 调用路由处理函数
         handler(request, writer);
-
-        // 后置处理中间件
-        for (const auto& middleware : _middlewares)
-        {
-            const std::string mwPath = middleware->getPath();
-            if (mwPath != "/" && !startsWith(request.getPath(), mwPath))
-            {
-                continue;
-            }
-            middleware->postProcess(request, writer);
-        }
     }
 
     bool HttpServer::staticHandler(const HttpRequest& request, HttpResponseWriter& writer, int writerFd) const

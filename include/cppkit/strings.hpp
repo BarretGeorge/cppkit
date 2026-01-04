@@ -44,4 +44,19 @@ namespace cppkit
 
     // URL decodes the string
     std::string urlDecode(std::string_view s, bool spaceAsPlus = true);
+
+    // 寻找路径分隔符并返回文件名或相对路径
+    consteval const char* shortFilename(const char* path)
+    {
+        const char* file = path;
+        while (*path)
+        {
+            if (*path == '/' || *path == '\\')
+            {
+                file = path + 1;
+            }
+            path++;
+        }
+        return file;
+    }
 } // namespace cppkit

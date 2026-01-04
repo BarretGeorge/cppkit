@@ -17,6 +17,81 @@
 
 namespace cppkit::json
 {
+    namespace internal
+    {
+        template <typename T>
+        struct is_set_container : std::false_type
+        {
+        };
+
+        template <typename T, typename A>
+        struct is_set_container<std::unordered_set<T, A>> : std::true_type
+        {
+        };
+
+        template <typename T, typename A>
+        struct is_set_container<std::set<T, A>> : std::true_type
+        {
+        };
+
+        template <typename T>
+        constexpr bool is_set_container_v = is_set_container<T>::value;
+
+        template <typename T>
+        struct is_map_container : std::false_type
+        {
+        };
+
+        template <typename T, typename A>
+        struct is_map_container<std::unordered_map<T, A>> : std::true_type
+        {
+        };
+
+        template <typename T, typename A>
+        struct is_map_container<std::map<T, A>> : std::true_type
+        {
+        };
+
+        template <typename T>
+        constexpr bool is_map_container_v = is_map_container<T>::value;
+
+        template <typename T>
+        struct is_sequence_container : std::false_type
+        {
+        };
+
+        template <typename T, typename A>
+        struct is_sequence_container<std::vector<T, A>> : std::true_type
+        {
+        };
+
+        template <typename T, typename A>
+        struct is_sequence_container<std::list<T, A>> : std::true_type
+        {
+        };
+
+        template <typename T, typename A>
+        struct is_sequence_container<std::deque<T, A>> : std::true_type
+        {
+        };
+
+        template <typename T>
+        constexpr bool is_sequence_container_v = is_sequence_container<T>::value;
+
+        template <typename T, typename = void>
+        struct is_reflectable : std::false_type
+        {
+        };
+
+        template <typename T>
+        struct is_reflectable<T, std::void_t<decltype(reflection::MetaData<T>::info())>> : std::true_type
+        {
+        };
+
+        template <typename T>
+        constexpr bool is_reflectable_v = is_reflectable<T>::value;
+    }
+
     class Json
     {
     public:
@@ -141,6 +216,120 @@ namespace cppkit::json
             return std::get<array>(v).at(idx);
         }
 
+        template <typename T, typename = std::enable_if_t<
+                                  !std::is_same_v<std::decay_t<T>, Json> &&
+                                  !std::is_same_v<std::decay_t<T>, array> &&
+                                  !std::is_same_v<std::decay_t<T>, object>>>
+        explicit Json(const T& obj)
+        {
+            using DecayT = std::decay_t<T>;
+            if constexpr (std::is_arithmetic_v<DecayT>)
+            {
+                if constexpr (std::is_same_v<DecayT, bool>)
+                {
+                    v = static_cast<bool>(obj);
+                }
+                else
+                {
+                    v = static_cast<double>(obj);
+                }
+            }
+            else if constexpr (std::is_convertible_v<T, std::string_view>)
+            {
+                v = std::string(obj);
+            }
+            else if constexpr (internal::is_sequence_container_v<T>)
+            {
+                array arr;
+                arr.reserve(obj.size());
+                for (const auto& item : obj)
+                {
+                    arr.emplace_back(item);
+                }
+                v = std::move(arr);
+            }
+            else if constexpr (internal::is_map_container_v<T>)
+            {
+                object objJson;
+                for (const auto& [key, value] : obj)
+                {
+                    objJson.emplace(key, Json(value));
+                }
+                v = std::move(objJson);
+            }
+            else if constexpr (internal::is_reflectable_v<DecayT>)
+            {
+                object objJson;
+                reflection::forEachField(obj, [&](const std::string_view name, const auto& value)
+                {
+                    objJson.emplace(name, Json(value));
+                });
+                v = std::move(objJson);
+            }
+            else
+            {
+                static_assert(internal::is_reflectable_v<T>,
+                              "Type is not reflectable. Please register it using REFLECT macro.");
+            }
+        }
+
+        template <typename T, typename = std::enable_if_t<
+                                  !std::is_same_v<std::decay_t<T>, Json> &&
+                                  !std::is_same_v<std::decay_t<T>, array> &&
+                                  !std::is_same_v<std::decay_t<T>, object>>>
+        explicit Json(T&& obj) noexcept(std::is_nothrow_move_constructible_v<T>)
+        {
+            using DecayT = std::decay_t<T>;
+            if constexpr (std::is_arithmetic_v<DecayT>)
+            {
+                if constexpr (std::is_same_v<DecayT, bool>)
+                {
+                    v = static_cast<bool>(obj);
+                }
+                else
+                {
+                    v = static_cast<double>(obj);
+                }
+            }
+            else if constexpr (std::is_convertible_v<T, std::string_view>)
+            {
+                v = std::string(std::forward<T>(obj));
+            }
+            else if constexpr (internal::is_sequence_container_v<T>)
+            {
+                array arr;
+                arr.reserve(obj.size());
+                for (auto& item : obj)
+                {
+                    arr.emplace_back(std::move(item));
+                }
+                v = std::move(arr);
+            }
+            else if constexpr (internal::is_map_container_v<T>)
+            {
+                object objJson;
+                for (auto&& [key, value] : obj)
+                {
+                    objJson.emplace(std::move(key), Json(std::move(value)));
+                }
+                v = std::move(objJson);
+            }
+            else if constexpr (internal::is_reflectable_v<DecayT>)
+            {
+                object objJson;
+                reflection::forEachField(std::forward<T>(obj), [&]<typename T0>(const std::string_view name, T0&& value)
+                {
+                    objJson.emplace(name, Json(std::forward<T0>(value)));
+                });
+                v = std::move(objJson);
+            }
+            else
+            {
+                static_assert(internal::is_reflectable_v<T>,
+                              "Type is not reflectable. Please register it using REFLECT macro.");
+            }
+        }
+
         // Assignment operators
         Json& operator=(std::nullptr_t) noexcept
         {
@@ -214,6 +403,61 @@ namespace cppkit::json
             return *this;
         }
 
+        template <typename T>
+        Json& operator=(const T obj)
+        {
+            using DecayT = std::decay_t<T>;
+            if constexpr (std::is_arithmetic_v<DecayT>)
+            {
+                if constexpr (std::is_same_v<T, bool>)
+                {
+                    v = static_cast<bool>(obj);
+                }
+                else
+                {
+                    v = static_cast<double>(obj);
+                }
+            }
+            else if constexpr (std::is_convertible_v<T, std::string_view>)
+            {
+                v = std::string(obj);
+            }
+            else if constexpr (internal::is_sequence_container_v<T>)
+            {
+                array arr;
+                arr.reserve(obj.size());
+                for (const auto& item : obj)
+                {
+                    arr.emplace_back(item);
+                }
+                v = std::move(arr);
+            }
+            else if constexpr (internal::is_map_container_v<T>)
+            {
+                object objJson;
+                for (const auto& [key, value] : obj)
+                {
+                    objJson.emplace(key, Json(value));
+                }
+                v = std::move(objJson);
+            }
+            else if constexpr (internal::is_reflectable_v<DecayT>)
+            {
+                object objJson;
+                reflection::forEachField(obj, [&](const std::string_view name, const auto& value)
+                {
+                    objJson.emplace(name, Json(value));
+                });
+                v = std::move(objJson);
+            }
+            else
+            {
+                static_assert(internal::is_reflectable_v<T>,
+                              "Type is not reflectable. Please register it using REFLECT macro.");
+            }
+            return *this;
+        }
+
         // Serialization
         [[nodiscard]]
         std::string dump(bool pretty = false, int indent_size = 2) const;
@@ -229,87 +473,16 @@ namespace cppkit::json
         static Json parse(const std::string& s);
     };
 
-    namespace internal
-    {
-        template <typename T>
-        struct is_set_container : std::false_type
-        {
-        };
-
-        template <typename T, typename A>
-        struct is_set_container<std::unordered_set<T, A>> : std::true_type
-        {
-        };
-
-        template <typename T, typename A>
-        struct is_set_container<std::set<T, A>> : std::true_type
-        {
-        };
-
-        template <typename T>
-        constexpr bool is_set_container_v = is_set_container<T>::value;
-
-        template <typename T>
-        struct is_map_container : std::false_type
-        {
-        };
-
-        template <typename T, typename A>
-        struct is_map_container<std::unordered_map<T, A>> : std::true_type
-        {
-        };
-
-        template <typename T, typename A>
-        struct is_map_container<std::map<T, A>> : std::true_type
-        {
-        };
-
-        template <typename T>
-        constexpr bool is_map_container_v = is_map_container<T>::value;
-
-        template <typename T>
-        struct is_sequence_container : std::false_type
-        {
-        };
-
-        template <typename T, typename A>
-        struct is_sequence_container<std::vector<T, A>> : std::true_type
-        {
-        };
-
-        template <typename T, typename A>
-        struct is_sequence_container<std::list<T, A>> : std::true_type
-        {
-        };
-
-        template <typename T, typename A>
-        struct is_sequence_container<std::deque<T, A>> : std::true_type
-        {
-        };
-
-        template <typename T>
-        constexpr bool is_sequence_container_v = is_sequence_container<T>::value;
-
-        template <typename T, typename = void>
-        struct is_reflectable : std::false_type
-        {
-        };
-
-        template <typename T>
-        struct is_reflectable<T, std::void_t<decltype(reflection::MetaData<T>::info())>> : std::true_type
-        {
-        };
-
-        template <typename T>
-        constexpr bool is_reflectable_v = is_reflectable<T>::value;
-    }
-
     template <typename T>
     std::string stringify(const T& obj)
     {
         using Type = std::decay_t<T>;
 
-        if constexpr (std::is_arithmetic_v<Type>) // 算术类型
+        if constexpr (std::is_same_v<Type, Json>) // Json类型
+        {
+            return obj.dump();
+        }
+        else if constexpr (std::is_arithmetic_v<Type>) // 算术类型
         {
             if constexpr (std::is_same_v<Type, bool>)
             {
@@ -322,7 +495,46 @@ namespace cppkit::json
         }
         else if constexpr (std::is_convertible_v<Type, std::string_view>) // 字符串类型
         {
-            return "\"" + std::string(obj) + "\"";
+            std::ostringstream oss;
+            oss << '"';
+            for (unsigned char c : std::string(obj))
+            {
+                switch (c)
+                {
+                case '"':
+                    oss << "\\\"";
+                    break;
+                case '\\':
+                    oss << "\\\\";
+                    break;
+                case '\b':
+                    oss << "\\b";
+                    break;
+                case '\f':
+                    oss << "\\f";
+                    break;
+                case '\n':
+                    oss << "\\n";
+                    break;
+                case '\r':
+                    oss << "\\r";
+                    break;
+                case '\t':
+                    oss << "\\t";
+                    break;
+                default:
+                    if (c < 0x20)
+                    {
+                        oss << "\\u" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << (int)c <<
+                            std::dec
+                            << std::nouppercase;
+                    }
+                    else
+                        oss << c;
+                }
+            }
+            oss << '"';
+            return oss.str();
         }
         else if constexpr (internal::is_sequence_container_v<Type> || internal::is_set_container_v<Type>) // 顺序或者set容器
         {
@@ -348,16 +560,54 @@ namespace cppkit::json
                 first = false;
 
                 // Key 必须转为 string
-                s += "\"";
+                std::ostringstream key_oss;
+                key_oss << '"';
                 if constexpr (std::is_arithmetic_v<std::decay_t<decltype(key)>>)
                 {
-                    s += std::to_string(key);
+                    key_oss << std::to_string(key);
                 }
                 else
                 {
-                    s += key;
+                    for (unsigned char c : std::string(key))
+                    {
+                        switch (c)
+                        {
+                        case '"':
+                            key_oss << "\\\"";
+                            break;
+                        case '\\':
+                            key_oss << "\\\\";
+                            break;
+                        case '\b':
+                            key_oss << "\\b";
+                            break;
+                        case '\f':
+                            key_oss << "\\f";
+                            break;
+                        case '\n':
+                            key_oss << "\\n";
+                            break;
+                        case '\r':
+                            key_oss << "\\r";
+                            break;
+                        case '\t':
+                            key_oss << "\\t";
+                            break;
+                        default:
+                            if (c < 0x20)
+                            {
+                                key_oss << "\\u" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << (
+                                        int)c <<
+                                    std::dec
+                                    << std::nouppercase;
+                            }
+                            else
+                                key_oss << c;
+                        }
+                    }
                 }
-                s += "\":";
+                key_oss << '"' << ':';
+                s += key_oss.str();
                 s += stringify(value);
             }
             s += "}";

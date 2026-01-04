@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.hpp"
+#include "cppkit/strings.hpp"
 #include <memory>
 #include <string>
 #include <mutex>
@@ -14,11 +15,12 @@
 #include <queue>
 #include <thread>
 #include <condition_variable>
+#include <source_location>
 #include <atomic>
 #if defined(__cpp_lib_format)
-    #include <format>
+#include <format>
 #else
-    #include "cppkit/fmt.hpp"
+#include "cppkit/fmt.hpp"
 #endif
 
 namespace cppkit::log
@@ -90,16 +92,47 @@ namespace cppkit::log
             // 获取日志级别字符串
             const std::string levelStr = levelToString(lvl);
 
-             oss << "[" << timeStr << "]"
+            // 添加颜色（仅在输出到终端时）
+            if (to_stdout_)
+            {
+                std::string colorCode;
+                switch (lvl)
+                {
+                case Level::Trace: colorCode = "\033[37m";
+                    break; // 白色
+                case Level::Debug: colorCode = "\033[36m";
+                    break; // 青色
+                case Level::Info: colorCode = "\033[32m";
+                    break; // 绿色
+                case Level::Warn: colorCode = "\033[33m";
+                    break; // 黄色
+                case Level::Error: colorCode = "\033[31m";
+                    break; // 红色
+                case Level::Fatal: colorCode = "\033[35m";
+                    break; // 紫色
+                default: colorCode = "\033[0m";
+                    break; // 重置
+                }
+                oss << colorCode;
+            }
+
+            oss << "[" << timeStr << "]"
                 << "[" << levelStr << "]"
-                << "[" << file << ":" << line << " " << func << "] ";
+                << ":" << file << ":" << line << " " << func << "] ";
+
 
             // 拼接完整日志行
-            #if defined(__cpp_lib_format)
-                oss << std::vformat(fmt, std::make_format_args(args...)) << "\n";
-            #else
-                oss << cppkit::format(fmt, std::forward<Args>(args)...) << "\n";
-            #endif            
+#if defined(__cpp_lib_format)
+            oss << std::vformat(fmt, std::make_format_args(args...)) << "\n";
+#else
+            oss << cppkit::format(fmt, std::forward<Args>(args)...) << "\n";
+#endif
+
+            // 添加颜色重置码
+            if (to_stdout_)
+            {
+                oss << "\033[0m";
+            }
 
             const std::string logLine = oss.str();
 
@@ -221,23 +254,25 @@ namespace cppkit::log
         std::thread bg_thread_; // 后台处理线程
     };
 
+#define REL_FILE_ (cppkit::shortFilename(__FILE__))
+
     // Trace 级别日志
-#define CK_LOG_TRACE(fmt, ...) cppkit::log::Logger::instance().logf(cppkit::log::Level::Trace, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
+#define CK_LOG_TRACE(fmt, ...) cppkit::log::Logger::instance().logf(cppkit::log::Level::Trace, REL_FILE_, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
     // Debug 级别日志
-#define CK_LOG_DEBUG(fmt, ...) cppkit::log::Logger::instance().logf(cppkit::log::Level::Debug, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
+#define CK_LOG_DEBUG(fmt, ...) cppkit::log::Logger::instance().logf(cppkit::log::Level::Debug, REL_FILE_, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
     // Info 级别日志
-#define CK_LOG_INFO(fmt, ...)  cppkit::log::Logger::instance().logf(cppkit::log::Level::Info,  __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
+#define CK_LOG_INFO(fmt, ...)  cppkit::log::Logger::instance().logf(cppkit::log::Level::Info,  REL_FILE_, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
     // Warn 级别日志
-#define CK_LOG_WARN(fmt, ...)  cppkit::log::Logger::instance().logf(cppkit::log::Level::Warn,  __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
+#define CK_LOG_WARN(fmt, ...)  cppkit::log::Logger::instance().logf(cppkit::log::Level::Warn,  REL_FILE_, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
     // Error 级别日志
-#define CK_LOG_ERROR(fmt, ...) cppkit::log::Logger::instance().logf(cppkit::log::Level::Error, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
+#define CK_LOG_ERROR(fmt, ...) cppkit::log::Logger::instance().logf(cppkit::log::Level::Error, REL_FILE_, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
     // Fatal 级别日志
-#define CK_LOG_FATAL(fmt, ...) cppkit::log::Logger::instance().logf(cppkit::log::Level::Fatal, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
+#define CK_LOG_FATAL(fmt, ...) cppkit::log::Logger::instance().logf(cppkit::log::Level::Fatal, REL_FILE_, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
     // 设置日志文件路径
 #define CK_LOG_INIT_FILE(path) cppkit::log::Logger::instance().init(path)

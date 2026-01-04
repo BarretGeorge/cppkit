@@ -1,6 +1,8 @@
 #pragma once
 
 #include "io.hpp"
+#include "cppkit/define.hpp"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -92,7 +94,7 @@ namespace cppkit::io
     size_t write(const char* buffer, size_t size, size_t offset = 0, bool append = false) const;
 
     // 以块的形式读取文件内容，回调函数处理每块数据
-    size_t read(const std::function<void(const char*, ssize_t)>& fun, size_t offset = 0, int chunk = BUFFER_SIZE) const;
+    size_t read(const std::function<void(const char*, ssize_t)>& fun, size_t offset = 0, int chunk = DEFAULT_BUFFER_SIZE) const;
 
   private:
     bool open() const;

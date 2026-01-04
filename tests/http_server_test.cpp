@@ -1,27 +1,6 @@
 #include "cppkit/http/server/http_server.hpp"
+#include "cppkit/http/server/router_group.hpp"
 #include "cppkit/json/json.hpp"
-
-class CrossMiddleware : public cppkit::http::server::HttpMiddleware
-{
-public:
-    bool preProcess(const cppkit::http::server::HttpRequest& req,
-                    cppkit::http::server::HttpResponseWriter& res) const override
-    {
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        return true;
-    }
-
-    [[nodiscard]] std::string getPath() const override
-    {
-        return "/hello";
-    }
-
-    [[nodiscard]] int getPriority() const override
-    {
-        return 10;
-    }
-};
 
 int main()
 {
@@ -35,16 +14,42 @@ int main()
     server.setStaticDir("static", "external");
 
     // register middleware
-    server.addMiddleware(std::make_shared<CrossMiddleware>(CrossMiddleware()));
+    server.addMiddleware("/",
+                         [](const HttpRequest& req, HttpResponseWriter& res, const NextFunc& next)
+                         {
+                             std::cout << "Received request: " << httpMethodValue(req.getMethod()) << " " << req.
+                                 getPath() << std::endl;
+                             next();
+                         });
+
+    server.addMiddleware("/hello",
+                         [](HttpRequest& req, HttpResponseWriter& res, const NextFunc& next)
+                         {
+                             auto name = req.getQuery("name");
+                             if (name.empty())
+                             {
+                                 res.setStatusCode(cppkit::http::HTTP_BAD_REQUEST);
+                                 res.setHeader("Content-Type", "text/plain");
+                                 res.write("Missing 'name' query parameter");
+                             }
+                             else
+                             {
+                                 name += " from middleware";
+                                 req.setQuery("name", name);
+                                 next();
+                             }
+                         });
+
 
     // register routes
     // GET /hello
     server.Get("/hello",
                [](const HttpRequest& req, HttpResponseWriter& res)
                {
+                   const auto name = req.getQuery("name");
                    res.setStatusCode(cppkit::http::HTTP_OK);
-                   res.setHeader("Content-Type", "text/plain");
-                   res.write("Hello, World!");
+                   res.setContentType("text/plain");
+                   res.write("Hello, World!" + name);
                });
 
     // GET /hello/:name
@@ -54,7 +59,7 @@ int main()
                    // extract path parameter
                    const std::string name = req.getParam("name");
                    res.setStatusCode(cppkit::http::HTTP_OK);
-                   res.setHeader("Content-Type", "text/plain");
+                   res.setContentType("text/plain");
                    res.write("Hello, " + name + "!");
                });
 
@@ -66,7 +71,7 @@ int main()
                     auto body = req.readBody();
 
                     res.setStatusCode(cppkit::http::HTTP_OK);
-                    res.setHeader("Content-Type", "application/json");
+                    res.setContentType("application/json");
 
                     auto result = Json{};
                     result["status"] = 200;
@@ -78,6 +83,23 @@ int main()
                     }
                     res.write(result.dump());
                 });
+
+    // create a route group for /user
+    const auto group = server.group("/user");
+    group.use(
+        [](const HttpRequest& req, HttpResponseWriter& res, const NextFunc& next)
+        {
+            std::cout << "User group middleware for path: " << req.getPath() << std::endl;
+            next();
+        });
+    group.Get("/:id",
+              [](const HttpRequest& req, HttpResponseWriter& res)
+              {
+                  const std::string userId = req.getParam("id");
+                  res.setStatusCode(cppkit::http::HTTP_OK);
+                  res.setContentType("text/plain");
+                  res.write("User ID: " + userId);
+              });
 
     // start server
     server.start();

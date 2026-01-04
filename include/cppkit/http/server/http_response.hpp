@@ -18,6 +18,8 @@ namespace cppkit::http::server
 
     void setHeader(const std::string& key, const std::string& value);
 
+    void setContentType(const std::string& contentType);
+
     ssize_t write(const std::string& body);
 
     ssize_t write(const std::vector<uint8_t>& body);

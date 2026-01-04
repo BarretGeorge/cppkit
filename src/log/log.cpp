@@ -181,7 +181,7 @@ namespace cppkit::log
     {
         while (true)
         {
-            std::unique_lock<std::mutex> lk(queue_mtx_);
+            std::unique_lock lk(queue_mtx_);
 
             // 等待有日志或者停止信号
             queue_cv_.wait(lk, [this]()
@@ -203,10 +203,15 @@ namespace cppkit::log
 
             // 持有文件锁处理所有日志
             std::lock_guard lk2(mtx_);
+            const bool hasWritten = !temp_queue.empty();
             while (!temp_queue.empty())
             {
                 processLogLineLocked(temp_queue.front());
                 temp_queue.pop();
+            }
+            if (hasWritten && ofs_ && ofs_->is_open())
+            {
+                ofs_->flush();
             }
         }
     }

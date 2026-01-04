@@ -14,8 +14,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Enable generation of compile_commands.json for tooling support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Define the shared library target
-add_library(cppkit SHARED
+# Define the static library target
+add_library(cppkit STATIC
         src/http/http_client.cpp
         src/http/http_request.cpp
         src/http/server/http_server.cpp
