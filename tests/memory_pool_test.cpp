@@ -1,6 +1,7 @@
 #include "cppkit/memory_pool.hpp"
 #include <iostream>
 #include <thread>
+#include <cstring>
 
 struct Student
 {

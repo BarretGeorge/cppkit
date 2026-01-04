@@ -10,7 +10,7 @@ int main()
 {
     using namespace cppkit::http::server;
 
-    const Router router{};
+    Router router{};
     router.addRoute(cppkit::http::HttpMethod::Get, "/test/:id", handleTest);
     if (!router.exists(cppkit::http::HttpMethod::Get, "/test/123"))
     {
