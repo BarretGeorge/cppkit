@@ -17,7 +17,7 @@ namespace cppkit::concurrency
         using ValuePtr = std::shared_ptr<V>;
         using MapType = std::unordered_map<K, std::shared_ptr<Entry>>;
 
-        static ValuePtr getExpunged()
+        static const ValuePtr& getExpunged()
         {
             static ValuePtr expunged = std::make_shared<V>();
             return expunged;
